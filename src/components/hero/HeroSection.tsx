@@ -43,23 +43,57 @@ export default function HeroSection() {
     ctx.drawImage(img, 0, 0);
   };
 
-  // Preload images
+  // Preload images optimally to prevent network choking
   useEffect(() => {
-    const images: HTMLImageElement[] = [];
-    let firstFrameLoaded = false;
-
-    for (let i = 0; i < FRAME_COUNT; i++) {
-      const img = new Image();
-      img.src = currentFrame(i);
-      img.onload = () => {
-        if (!firstFrameLoaded && i === 0) {
-          firstFrameLoaded = true;
-          renderFrame(0);
-        }
-      };
-      images.push(img);
-    }
+    let isMounted = true;
+    const images: HTMLImageElement[] = new Array(FRAME_COUNT);
     imagesRef.current = images;
+
+    const loadFrame = (index: number): Promise<void> => {
+      return new Promise((resolve) => {
+        if (!isMounted) return resolve();
+        const img = new Image();
+        img.src = currentFrame(index);
+        img.onload = () => {
+          if (isMounted) {
+            images[index] = img;
+            if (index === 0) renderFrame(0);
+          }
+          resolve();
+        };
+        img.onerror = () => resolve();
+      });
+    };
+
+    const loadImages = async () => {
+      // 1. Load the very first frame immediately so it renders instantly
+      await loadFrame(0);
+
+      if (!isMounted) return;
+
+      // 2. Load the next few frames for immediate scrolling readiness
+      const initialBatch = [];
+      for (let i = 1; i <= 15; i++) {
+        if (i < FRAME_COUNT) initialBatch.push(loadFrame(i));
+      }
+      await Promise.all(initialBatch);
+
+      if (!isMounted) return;
+
+      // 3. Defer loading the remaining 100+ frames so the rest of the page (fonts/CSS/images) can load first
+      setTimeout(() => {
+        if (!isMounted) return;
+        for (let i = 16; i < FRAME_COUNT; i++) {
+          loadFrame(i);
+        }
+      }, 1000);
+    };
+
+    loadImages();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   useGSAP(() => {
